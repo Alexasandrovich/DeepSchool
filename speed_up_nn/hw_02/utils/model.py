@@ -1,7 +1,7 @@
 from typing import Dict
 
 import torch
-from datasets import load_metric
+from evaluate import load as load_metric
 from torch import nn
 from transformers import SegformerForSemanticSegmentation
 

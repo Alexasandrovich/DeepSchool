@@ -5,7 +5,6 @@ import typing as tp
 from torch import nn
 from tqdm.auto import tqdm
 from torch.nn import functional as F
-from torch.utils.tensorboard.writer import SummaryWriter
 from .model import evaluate_model
 
 @dataclass
@@ -25,8 +24,6 @@ class TrainParams:
 
 mse_loss = nn.MSELoss()
 kl_loss = nn.KLDivLoss()
-save_dir = 'runs/pruning'
-tb_writer = SummaryWriter(save_dir)
 id2label = {
     0: "background",
     1: "human",
@@ -74,6 +71,8 @@ def train(
         student_model,
         train_params: TrainParams,
         student_teacher_attention_mapping,
+        tb_writer,
+        save_dir,
 ):
     teacher_model.to(train_params.device)
     student_model.to(train_params.device)
