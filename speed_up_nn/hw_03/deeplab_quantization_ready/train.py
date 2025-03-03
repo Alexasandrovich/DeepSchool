@@ -2,7 +2,7 @@ import datetime
 import os
 import time
 import warnings
-from tqdm import tqdm
+from itertools import islice
 import presets
 import torch
 import torch.utils.data
@@ -65,13 +65,21 @@ def criterion(inputs, target):
 
 
 def evaluate(model, data_loader, device, num_classes):
+    print(f"evaluating...")
     model.eval()
     confmat = utils.ConfusionMatrix(num_classes)
     metric_logger = utils.MetricLogger(delimiter="  ")
     header = "Test:"
     num_processed_samples = 0
+    total_time = 0.0
+    processed_batches = 0
+
     with torch.inference_mode():
+        start_all = time.perf_counter()
+
         for image, target in metric_logger.log_every(data_loader, 10, header):
+            start_time = time.perf_counter()
+
             image, target = image.to(device), target.to(device)
             output = model(image)
             output = output["out"]
@@ -80,22 +88,21 @@ def evaluate(model, data_loader, device, num_classes):
             # FIXME need to take into account that the datasets
             # could have been padded in distributed setup
             num_processed_samples += image.shape[0]
+            processed_batches += 1
 
+            batch_time = time.perf_counter() - start_time
+            total_time += batch_time
+            metric_logger.meters['batch_time'].update(batch_time)
+
+        total_time_all = time.perf_counter() - start_all
         confmat.reduce_from_all_processes()
 
-    num_processed_samples = utils.reduce_across_processes(num_processed_samples)
-    if (
-        hasattr(data_loader.dataset, "__len__")
-        and len(data_loader.dataset) != num_processed_samples
-        and torch.distributed.get_rank() == 0
-    ):
-        # See FIXME above
-        warnings.warn(
-            f"It looks like the dataset has {len(data_loader.dataset)} samples, but {num_processed_samples} "
-            "samples were used for the validation, which might bias the results. "
-            "Try adjusting the batch size and / or the world size. "
-            "Setting the world size to 1 is always a safe bet."
-        )
+    # check speed
+    latency = total_time / processed_batches if processed_batches > 0 else 0
+    throughput = num_processed_samples / total_time_all if total_time_all > 0 else 0
+
+    print(f"Latency: {latency:.4f} sec/batch")
+    print(f"Throughput: {throughput:.2f} samples/sec")
 
     return confmat
 
