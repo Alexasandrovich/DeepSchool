@@ -337,6 +337,48 @@ def get_args_parser(add_help=True):
     parser.add_argument("--use-v2", action="store_true", help="Use V2 transforms")
     return parser
 
+def train_one_epoch_distill(
+        teacher_model,
+        student_model,
+        optimizer,
+        data_loader,
+        device,
+        epoch,
+        print_freq,
+        scaler,
+):
+    student_model.train()
+
+    for batch_idx, (data, target) in enumerate(data_loader):
+        print(batch_idx)
+        data = data.to(device)
+
+        # Получаем логиты учителя
+        with torch.no_grad():
+            teacher_output = teacher_model(data)['out']
+
+        # Прямой проход студента
+        with torch.cuda.amp.autocast(enabled=scaler is not None):
+            student_output = student_model(data)['out']
+
+            # Вычисляем лосс дистилляции (MSE по логитам)
+            distill_loss = F.mse_loss(student_output, teacher_output.detach())
+            loss = distill_loss
+
+        optimizer.zero_grad()
+        if scaler is not None:
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            loss.backward()
+            optimizer.step()
+
+        # Вывод лоссов
+        if batch_idx % print_freq == 0:
+            print(f'Epoch: {epoch} | Batch: {batch_idx} | Distill Loss: {distill_loss.item():.4f} | '
+                  f'Total Loss: {loss.item():.4f}')
+
 def save_args(args, path):
     import pickle
     from pathlib import Path
