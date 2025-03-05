@@ -1,8 +1,6 @@
 import datetime
 import os
 import time
-import warnings
-from itertools import islice
 import presets
 import torch
 import torch.utils.data
@@ -12,6 +10,7 @@ from coco_utils import get_coco
 from torch import nn
 from torch.optim.lr_scheduler import PolynomialLR
 from torchvision.transforms import functional as F, InterpolationMode
+
 
 
 def get_dataset(args, is_train):
@@ -112,8 +111,13 @@ def train_one_epoch(model, criterion, optimizer, data_loader, lr_scheduler, devi
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter("lr", utils.SmoothedValue(window_size=1, fmt="{value}"))
     header = f"Epoch: [{epoch}]"
+    batch_count = 0
     for image, target in metric_logger.log_every(data_loader, print_freq, header):
-        image, target = image.to(device), target.to(device)
+        batch_count += 2
+        if batch_count > 50:
+            # fix Cuda OutOfMemoryError
+            break
+        image, target = image.float().to(device), target.to(device)
         with torch.cuda.amp.autocast(enabled=scaler is not None):
             output = model(image)
             loss = criterion(output, target)
@@ -127,9 +131,12 @@ def train_one_epoch(model, criterion, optimizer, data_loader, lr_scheduler, devi
             loss.backward()
             optimizer.step()
 
-        lr_scheduler.step()
-
         metric_logger.update(loss=loss.item(), lr=optimizer.param_groups[0]["lr"])
+
+        # fix Cuda OutOfMemoryError
+        del image, target, output, loss
+        torch.cuda.empty_cache()
+    lr_scheduler.step()
 
 
 def main(args):
@@ -329,7 +336,6 @@ def get_args_parser(add_help=True):
     parser.add_argument("--backend", default="PIL", type=str.lower, help="PIL or tensor - case insensitive")
     parser.add_argument("--use-v2", action="store_true", help="Use V2 transforms")
     return parser
-
 
 def save_args(args, path):
     import pickle
