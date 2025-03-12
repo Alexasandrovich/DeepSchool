@@ -66,6 +66,7 @@ class SearchBlock(torch.nn.Module):
         #  cannot have convolutions with different number of output channels
         #  as a standalone operations in the same block.
         self.ops = nn.ModuleList(operations)
+        # register_buffer need due to safe in state_dict
         self.register_buffer('active_index', torch.tensor(0, dtype=torch.long))
 
     def forward(self, x):
